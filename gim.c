@@ -2,13 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <dirent.h>
 #include <locale.h>
 #include <ncurses.h>
 #include <sys/types.h>
 // git@github.com:jstmaxlol/kat
 #include "kat.h"
 
-// gim - the g interactive mode
+// gim - the g interactive mode,「ｇの対話モード」
 // copyleft (Unlicense) - czjstmax
 // for i am a funny lad, gim_version is binary
 
@@ -18,7 +19,10 @@ const wchar_t *welcome_message_pt2 = L"へようこそ！";
 const wchar_t *version_message = L"のばーじょんは「00001」だ";
 //
 int curr_line = 0;
+int wcurr_line = 0;
+int win_start_row = 0;
 char buff[1024];
+char last_cmd[512]; // TODO: implement simple command history
 //
 char cmd_sym[64] = ">";
 
@@ -31,6 +35,7 @@ const char *help_vars[] = {":h", ":H", ":he", ":hel", ":help", ":usage", "-h", "
 const char *edit_vars[] = {":e", ":E", ":ed", ":edi", ":edit", ":edito", ":editor", NULL};
 const char *clear_vars[] = {":c", ":C", ":cl", ":cle", ":clea", ":clear", "clear", "cls", "CLS", NULL};
 const char *cd_vars[] = {":cd", ":Cd", ":cD", ":CD", ":change-dir", ":changedir", NULL};
+const char *ls_vars[] = {":l", ":L", ":ls", ":Ls", ":lS", ":LS", ":lis", ":dir", ":ld", NULL};
 
 // Helpers
 int matches(const char *cmd, const char *list[]);
@@ -42,6 +47,7 @@ int main(void) {
     initscr();
     cbreak();
     echo();
+    keypad(stdscr, TRUE);
     start_color();
     use_default_colors();
 
@@ -114,14 +120,32 @@ int main(void) {
 
     refresh();
 
+    char cwd[2048];
+    strcpy(cwd, pwd);
+
     while (true) {
-        char cwd[4096];
-        pwd = getenv("PWD");
-        if (strcmp(pwd, home) == 0) {
-            // at ~
-            snprintf(cwd, sizeof(cwd), "~%s", pwd); // genius idea right here boys
+        wcurr_line = LINES - curr_line - 3;
+        win_start_row = 0;
+
+        char cwd_buff[4096];
+        char home_fixed[65];
+
+        getcwd(cwd, sizeof(cwd));
+
+        snprintf(home_fixed, sizeof(home_fixed), "%s/", home);
+
+        if (strcmp(cwd, home) == 0 || strcmp(cwd, home_fixed) == 0) {
+            snprintf(cwd_buff, sizeof(cwd_buff), "~");
+        } else if (strncmp(cwd, home_fixed, strlen(home_fixed)) == 0) {
+            snprintf(cwd_buff, sizeof(cwd_buff), "~%s", cwd + strlen(home));
         } else {
-            strcpy(cwd, pwd);
+            snprintf(cwd_buff, sizeof(cwd_buff), "%s", cwd);
+        }
+        if (strncmp(cwd, home_fixed, strlen(home_fixed)) == 0) {
+            // if cwd inside of home/
+            snprintf(cwd_buff, sizeof(cwd_buff), "~%s", cwd + strlen(home));
+        } else {
+            snprintf(cwd_buff, sizeof(cwd_buff), "%s", cwd);
         }
         // Print prompt
         attron(COLOR_PAIR(2)); // white
@@ -134,7 +158,7 @@ int main(void) {
         printw("@");
         attroff(COLOR_PAIR(2));
         attron(COLOR_PAIR(1)); // red
-        printw("%s", cwd);
+        printw("%s", cwd_buff);
         attroff(COLOR_PAIR(1));
         printw(")%s ", cmd_sym);
         // Read to buffer
@@ -142,96 +166,157 @@ int main(void) {
         curr_line++;
 
         if (matches(buff, quit_vars) == 0 || matches(buff, exit_vars) == 0) {
+            keypad(stdscr, FALSE);
             nocbreak();
             endwin();
             return 0;
-        } else if (matches(buff, edit_vars) == 0) {
+        }
+        else if (matches(buff, edit_vars) == 0) {
+            endwin();
             if (system(default_editor)) {
                 curr_line++;
                 mvprintw(curr_line, 0, ":: could not open default editor (%s)", default_editor);
             } else {
+                refresh();
+                doupdate();
                 clear();
                 curr_line = 0;
             }
-        } else if (strcmp(buff, ":evi") == 0) {
+        }
+        else if (strcmp(buff, ":evi") == 0) {
+            endwin();
             if (system("vi")) {
                 curr_line++;
                 mvprintw(curr_line, 0, ":: could not open vi");
             } else {
+                refresh();
+                doupdate();
                 clear();
                 curr_line = 0;
             }
-        } else if (strcmp(buff, ":evim") == 0) {
+        }
+        else if (strcmp(buff, ":evim") == 0) {
+            endwin();
             if (system("vim")) {
                 curr_line++;
                 mvprintw(curr_line, 0, ":: could not open vim");
             } else {
+                refresh();
+                doupdate();
                 clear();
                 curr_line = 0;
             }
-        } else if (strcmp(buff, ":envim") == 0) {
+        }
+        else if (strcmp(buff, ":envim") == 0) {
+            endwin();
             if (system("nvim")) {
                 curr_line++;
                 mvprintw(curr_line, 0, ":: could not open neovim");
             } else {
+                refresh();
+                doupdate();
                 clear();
                 curr_line = 0;
             }
-        } else if (strcmp(buff, ":ec") == 0) {
+        }
+        else if (strcmp(buff, ":ec") == 0) {
+            endwin();
             mvprintw(curr_line, 0, "?> ");
             curr_line++;
             wgetnstr(stdscr, buff, sizeof(buff) - 1);
             if (system(buff)) {
                 mvprintw(curr_line, 0, ":: could not open %s", buff);
             } else {
+                refresh();
+                doupdate();
                 clear();
                 curr_line = 0;
             }
-        } else if (strcmp(buff, ":") == 0) {
+        }
+        else if (strcmp(buff, ":") == 0) {
             mvprintw(curr_line, 0, ":: you need to provide at least a command");
             curr_line++;
-        } else if (matches(buff, clear_vars) == 0) {
+        }
+        else if (matches(buff, clear_vars) == 0) {
             clear();
             curr_line = 0;
-        } else if (matches(buff, help_vars) == 0) {
+        }
+        else if (matches(buff, help_vars) == 0) {
             usage();
-        } else if (matches(buff, cd_vars) == 0) {
+        }
+        else if (matches(buff, cd_vars) == 0) {
             char cmd[4096];
             mvprintw(curr_line, 0, "?> ");
             curr_line++;
             wgetnstr(stdscr, buff, sizeof(buff) - 1);
 
-            snprintf(cmd, sizeof(cmd), "cd %s", buff);
-            if (system(cmd)) {
+            snprintf(cmd, sizeof(cmd), "%s", buff);
+            if (strcmp(cmd, "~") == 0) {
+                if (chdir(home_fixed)) {
+                    mvprintw(curr_line, 0, ":: error while going home (%s)", home_fixed);
+                    curr_line++;
+                }
+            }
+            else {
+                if (chdir(cmd)) {
+                    mvprintw(curr_line, 0, ":: %s does not exist.", buff);
+                    curr_line++;
+                }
+            }
+            strcpy(cwd, buff);
+        }
+        else if (matches(buff, ls_vars) == 0) {
+            char ls_path[4096];
+            mvprintw(curr_line, 0, "?> ");
+            wgetnstr(stdscr, ls_path, sizeof(ls_path) - 1);
+            curr_line++;
+
+            if (strcmp(ls_path, "~") == 0) {
+                strcpy(ls_path, home_fixed);
+            }
+
+            DIR *d = opendir(ls_path);
+            if (!d) {
+                mvprintw(curr_line, 0, ":: error while opening dir %s", ls_path);
                 curr_line++;
             }
-        } else if (strlen(buff) > 0) {
-            char cmd[2048]; // huge buffer so we are 420% sure not to bfof
+
+            struct dirent *entry;
+            while ((entry = readdir(d)) != NULL) {
+                if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+                    continue;
+                mvprintw(curr_line, 0, "%s", entry->d_name);
+                curr_line++;
+            }
+            curr_line++;
+            closedir(d);
+        }
+        else if (strstr(buff, ":") != NULL) {
+            mvprintw(curr_line, 0, ":: %s is not a valid command", buff);
+            curr_line++;
+        }
+        else if (strlen(buff) > 0 && strstr(buff, ":") == NULL) {
+            char cmd[2048];
             snprintf(cmd, sizeof(cmd), "g %s", buff);
 
             FILE *pipe = popen(cmd, "r");
             if (!pipe) {
-                mvprintw(curr_line, 0, ":: there has been an error while running");
+                mvprintw(curr_line, 0, ":: error while running \"%s\"", cmd);
                 curr_line++;
-                mvprintw(curr_line, 0, ":: \"%s\"", cmd);
-                curr_line++;
-            } else {
-                refresh();
-                doupdate();
             }
-            WINDOW *win = newwin(curr_line, COLS, 1, 0);
-            //scrollok(win, TRUE);
+            WINDOW *win = newwin(wcurr_line , COLS, win_start_row, 0);
+            scrollok(win, TRUE);
             char line[384];
             int row = 0;
 
             while (fgets(line, sizeof(line), pipe)) {
-                if (row == curr_line) {
-                    wscrl(win, 1); // scroll up if we reach the window bottom
+                if (row == wcurr_line) {
+                    wscrl(win, 1);
                     row--;
                 }
                 ncurses_print_ansi_in_win(win, row++, 0, line);
                 wrefresh(win);
-            }
+            } curr_line = wcurr_line + win_start_row;
 
             pclose(pipe);
         }
@@ -328,5 +413,13 @@ void usage() {
 
     move(curr_line, 0);
     printw(":cd|Cd|cD|CD|changedir|change-dir - changes working directory");
+    curr_line++;
+
+    move(curr_line, 0);
+    printw(":l|ls|lis|dir|ld - listes (cwd) directory contents");
+    curr_line++;
+    
+    move(curr_line, 0);
+    printw(":^|UP_ARROW - executes last command (NOT YET IMPLEMENTED!)");
     curr_line++;
 }
