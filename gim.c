@@ -16,8 +16,8 @@
 // Global variables
 const wchar_t *welcome_message_pt1 = L"おはよう！";
 const wchar_t *welcome_message_pt2 = L"へようこそ！";
-const wchar_t *version_message = L"のばーじょんは「00001」だ";
-//
+const wchar_t *version_message = L"のばーじょんは「00001」だ"; // TODO: bump version number (00010)
+                                                               // after all TODO-s and issues (github)  are fixed.
 int curr_line = 0;
 int wcurr_line = 0;
 int win_start_row = 0;
@@ -36,6 +36,7 @@ const char *edit_vars[] = {":e", ":E", ":ed", ":edi", ":edit", ":edito", ":edito
 const char *clear_vars[] = {":c", ":C", ":cl", ":cle", ":clea", ":clear", "clear", "cls", "CLS", NULL};
 const char *cd_vars[] = {":cd", ":Cd", ":cD", ":CD", ":change-dir", ":changedir", NULL};
 const char *ls_vars[] = {":l", ":L", ":ls", ":Ls", ":lS", ":LS", ":lis", ":dir", ":ld", NULL};
+const char *print_vars[] = {":p", ":P", ":pr", ":pri", ":prin", ":print", NULL};
 
 // Helpers
 int matches(const char *cmd, const char *list[]);
@@ -171,11 +172,22 @@ int main(void) {
             endwin();
             return 0;
         }
+        // DEBUG STUFF (that might be useful)
+        else if (matches(buff, print_vars) == 0) {
+            mvprintw(curr_line, 0, "?> ");
+            curr_line++;
+            wgetnstr(stdscr, buff, sizeof(buff) - 1);
+            if (strcmp(buff, "curr_line") == 0) {
+                mvprintw(curr_line, 0, "curr_line=%d (%d)", curr_line, curr_line+1);
+                curr_line++;
+            }
+        }
         else if (matches(buff, edit_vars) == 0) {
             endwin();
             if (system(default_editor)) {
                 curr_line++;
                 mvprintw(curr_line, 0, ":: could not open default editor (%s)", default_editor);
+                curr_line++;
             } else {
                 refresh();
                 doupdate();
